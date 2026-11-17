@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Asistencia · Administración</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <header class="barra" style="background:#1d2433">
+    <h1>🛠️ Administración de asistencia</h1>
+    <button id="btnSalir" class="btn-sec oculto">Salir</button>
+  </header>
+
+  <main>
+    <section id="login" class="tarjeta login">
+      <h2>Ingreso del administrador</h2>
+      <form id="formLogin" class="grid">
+        <label class="ancho">Contraseña
+          <input type="password" name="clave" required autocomplete="current-password">
+        </label>
+        <button class="ancho">Entrar</button>
+      </form>
+    </section>
+
+    <div id="app" class="oculto">
+      <section class="tarjeta">
+        <h2>Registros</h2>
+        <div class="herramientas">
+          <input id="buscar" type="search" placeholder="Buscar por cédula, nombre, correo o teléfono…">
+          <span id="contador" class="contador"></span>
+          <button id="btnRecargar" type="button" class="btn-sec">↻</button>
+          <button id="btnExcel" type="button" class="btn-sec">⬇ Excel</button>
+          <button id="btnCSV" type="button" class="btn-sec">⬇ CSV</button>
+        </div>
+        <div class="tabla-cont">
+          <table>
+            <thead>
+              <tr><th>Cédula</th><th>Apellidos</th><th>Nombres</th><th>Nacimiento</th><th>Sexo</th><th>Tipo</th><th>Teléfono</th><th>Correo</th><th>Registro</th><th></th></tr>
+            </thead>
+            <tbody id="tabla"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="dlgEditar">
+    <form id="formEditar" method="dialog">
+      <h3>Editar registro</h3>
+      <div class="grid">
+        <label>Número de cédula *
+          <input name="cedula" inputmode="numeric" pattern="\d{3,10}" maxlength="10" required>
+        </label>
+        <label>Tipo de cédula
+          <select name="tipoCedula">
+            <option value="manual">Escrita a mano</option>
+            <option value="amarilla">Amarilla (hologramas)</option>
+            <option value="digital">Digital</option>
+          </select>
+        </label>
+        <label>Apellidos <input name="apellidos"></label>
+        <label>Nombres * <input name="nombres" required></label>
+        <label>Fecha de nacimiento <input name="fechaNacimiento" type="date"></label>
+        <label>Sexo
+          <select name="sexo"><option value="">—</option><option value="M">M</option><option value="F">F</option></select>
+        </label>
+        <label>Teléfono
+          <div class="tel"><select name="prefijo"></select><input name="numero" inputmode="tel"></div>
+        </label>
+        <label class="ancho">Correo <input name="correo" type="email"></label>
+      </div>
+      <p id="infoRegistro" class="ayuda"></p>
+      <div class="acciones">
+        <button type="button" class="btn-sec" data-cerrar>Cancelar</button>
+        <button type="submit" value="guardar">Guardar cambios</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/admin.js?v=5"></script>
+</body>
+</html>

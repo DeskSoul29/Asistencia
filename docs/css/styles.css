@@ -1,0 +1,96 @@
+:root {
+  --fondo: #f4f6fa;
+  --tarjeta: #fff;
+  --texto: #1d2433;
+  --suave: #5f6b7e;
+  --borde: #dde2ea;
+  --primario: #0b5cad;
+  --primario-osc: #084a8c;
+  --peligro: #c62828;
+  --ok: #1e7d3a;
+  --radio: 12px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--texto);
+  background: var(--fondo);
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.oculto { display: none !important; }
+
+.barra {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .8rem 1.2rem; background: var(--primario); color: #fff;
+  position: sticky; top: 0; z-index: 10;
+}
+.barra h1 { font-size: 1.15rem; margin: 0; }
+.barra .btn-sec { background: transparent; color: #fff; border-color: #ffffff88; }
+
+main { max-width: 1100px; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem; }
+#app { display: grid; gap: 1rem; }
+main > *, #app > * { min-width: 0; }
+.tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: var(--radio); padding: 1.1rem 1.2rem; }
+.tarjeta h2 { margin: 0 0 .8rem; font-size: 1.05rem; }
+.login { max-width: 380px; margin: 3rem auto; width: 100%; }
+.ayuda { color: var(--suave); font-size: .88rem; margin: .6rem 0 0; }
+
+label { display: grid; gap: .3rem; font-size: .88rem; color: var(--suave); }
+input, select, textarea {
+  font: inherit; color: var(--texto); padding: .6rem .7rem; border: 1px solid var(--borde);
+  border-radius: 8px; background: #fff; width: 100%;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--primario); outline-offset: -1px; }
+textarea { font-family: ui-monospace, monospace; }
+
+button, .btn-sec {
+  font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; padding: .6rem 1rem;
+  border: 1px solid var(--primario); background: var(--primario); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+}
+button:hover { background: var(--primario-osc); }
+button:disabled { opacity: .6; cursor: wait; }
+.btn-sec { background: #fff; color: var(--primario); }
+.btn-sec:hover { background: #eef4fb; }
+.btn-peligro { background: var(--peligro); border-color: var(--peligro); }
+.btn-peligro:hover { background: #a11f1f; }
+.btn-mini { padding: .3rem .6rem; font-size: .82rem; }
+
+.botones { display: flex; flex-wrap: wrap; gap: .5rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .8rem; }
+.grid .ancho { grid-column: 1 / -1; }
+.tel { display: grid; grid-template-columns: 130px 1fr; gap: .4rem; }
+
+.lector { margin-top: .8rem; max-width: 640px; border-radius: 10px; overflow: hidden; border: 1px solid var(--borde); }
+#zonaLector { margin-top: .8rem; }
+
+.herramientas { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .8rem; }
+.herramientas input { flex: 1 1 220px; width: auto; }
+.contador { color: var(--suave); font-size: .88rem; }
+
+.tabla-cont { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: .55rem .5rem; border-bottom: 1px solid var(--borde); white-space: nowrap; }
+th { color: var(--suave); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+tr.nuevo { animation: resaltar 2.5s ease-out; }
+@keyframes resaltar { from { background: #fff4c2; } to { background: transparent; } }
+.vacio { text-align: center; color: var(--suave); padding: 1.5rem; }
+.chip { font-size: .75rem; padding: .1rem .45rem; border-radius: 99px; background: #eef1f6; color: var(--suave); }
+.chip.amarilla { background: #fff4c2; color: #7a5b00; }
+.chip.digital { background: #e1efff; color: #0b4f99; }
+
+dialog { border: none; border-radius: var(--radio); padding: 1.2rem; width: min(640px, 94vw); }
+dialog::backdrop { background: #0008; }
+dialog h3 { margin-top: 0; }
+dialog .acciones { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 1.2rem; transform: translate(-50%, 150%);
+  background: var(--ok); color: #fff; padding: .75rem 1.1rem; border-radius: 10px;
+  max-width: 92vw; box-shadow: 0 6px 24px #0003; transition: transform .25s; z-index: 50;
+}
+.toast.visible { transform: translate(-50%, 0); }
+.toast.error { background: var(--peligro); }
+.toast.aviso { background: #b26a00; }
+
+.inicio { max-width: 520px; margin: 3rem auto; text-align: center; }
+.inicio .botones { justify-content: center; margin-top: 1.2rem; }
+.inicio a { text-decoration: none; }
