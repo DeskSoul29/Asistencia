@@ -41,7 +41,7 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--primario); outline-offset: -1px; }
 textarea { font-family: ui-monospace, monospace; }
 
-button, .btn-sec {
+button, .btn-sec, .btn-prim {
   font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; padding: .6rem 1rem;
   border: 1px solid var(--primario); background: var(--primario); color: #fff;
   display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
@@ -59,7 +59,10 @@ button:disabled { opacity: .6; cursor: wait; }
 .grid .ancho { grid-column: 1 / -1; }
 .tel { display: grid; grid-template-columns: 130px 1fr; gap: .4rem; }
 
-.lector { margin-top: .8rem; max-width: 640px; border-radius: 10px; overflow: hidden; border: 1px solid var(--borde); }
+.zona-camara { margin-top: .8rem; display: grid; gap: .6rem; max-width: 640px; }
+.zona-camara .botones button { flex: 1 1 auto; }
+.btn-grande { font-size: 1.1rem; padding: .9rem 1.2rem; }
+.lector { margin-top: 0; max-width: 640px; border-radius: 10px; overflow: hidden; border: 1px solid var(--borde); }
 #zonaLector { margin-top: .8rem; }
 
 .herramientas { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .8rem; }
@@ -94,3 +97,19 @@ dialog .acciones { display: flex; justify-content: flex-end; gap: .5rem; margin-
 .inicio { max-width: 520px; margin: 3rem auto; text-align: center; }
 .inicio .botones { justify-content: center; margin-top: 1.2rem; }
 .inicio a { text-decoration: none; }
+
+.btn-prim { background: var(--primario); color: #fff; }
+.btn-prim:hover { background: var(--primario-osc); }
+.estado { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; padding: .7rem .9rem;
+  background: #eef4fb; color: var(--primario-osc); border-radius: 8px; font-weight: 600; }
+.spinner { width: 1.1rem; height: 1.1rem; border: 3px solid #b9d0ea; border-top-color: var(--primario);
+  border-radius: 50%; animation: girar .8s linear infinite; flex: none; }
+@keyframes girar { to { transform: rotate(360deg); } }
+
+.visor { position: relative; overflow: hidden; border-radius: 10px; background: #000; line-height: 0; }
+.visor video { width: 100%; height: auto; display: block; }
+.guia { position: absolute; border: 3px solid #fff; border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .45); transition: border-color .2s; }
+.guia::after { content: 'Reverso de la cédula aquí'; position: absolute; left: 50%; top: .5rem; transform: translateX(-50%);
+  color: #fff; font: 600 .85rem system-ui, sans-serif; line-height: 1.2; white-space: nowrap; text-shadow: 0 1px 3px #000; }
+.guia.casi { border-color: #ffd54a; }

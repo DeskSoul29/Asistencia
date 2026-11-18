@@ -1,8 +1,10 @@
 import {
   iniciarPagina, toast, escapar, formatearFecha, prepararTelefono, ponerTelefono, leerTelefono,
   llenarFormulario, leerFormulario, filtrar, exportarExcel, exportarCSV,
-} from './app.js?v=5';
-import { Escaner, interpretarLectura, leerMRZDeFoto } from './cedula.js?v=5';
+} from './app.js?v=10';
+import {
+  interpretarLectura, leerCodigo, leerMRZDeFoto, leerReversoAmarilla, prepararImagen, precargarLectorTexto, EscanerVivo,
+} from './cedula.js?v=10';
 
 const $ = (id) => document.getElementById(id);
 let lista = [];
@@ -16,6 +18,7 @@ iniciarPagina({
     prepararTelefono($('formRegistro'));
     prepararTelefono($('formDato'));
     cargar();
+    setTimeout(precargarLectorTexto, 1500);
   },
 });
 
@@ -52,7 +55,9 @@ $('btnExcel').addEventListener('click', () => exportarExcel(filtrar(lista, $('bu
 $('btnCSV').addEventListener('click', () => exportarCSV(filtrar(lista, $('buscar').value)));
 
 // ───────── Lectura de cédula ─────────
-const escaner = new Escaner('lector');
+
+// ¿La lectura trae lo necesario para llenar el formulario?
+const lecturaCompleta = (d, formato = '') => !!(d?.cedula && (d.nombres || /PDF/i.test(formato)));
 
 function aplicarLectura(texto, formato) {
   console.log('Lectura cruda:', formato || '(sin formato)', JSON.stringify(texto));
@@ -73,64 +78,140 @@ function aplicarDatos(datos) {
   ponerTelefono(form, tel);
   form.correo.value = correo;
   toast(datos.aviso || `Cédula ${datos.cedula} leída ✔`, datos.aviso ? 'aviso' : 'ok');
-  (form.numero.value ? form.querySelector('[type=submit]') : form.numero).focus();
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (navigator.vibrate) navigator.vibrate(120);
 }
 
-async function detenerCamara() {
-  await escaner.detener();
-  $('lector').classList.add('oculto');
-  $('btnDetener').classList.add('oculto');
+const estado = (texto) => {
+  $('textoEstado').textContent = texto;
+  $('estadoLectura').classList.toggle('oculto', !texto);
+};
+
+const conLimite = (promesa, ms) =>
+  Promise.race([promesa, new Promise((_, no) => setTimeout(() => no(new Error('tiempo')), ms))]);
+
+// Lee una foto: 1) código de barras / QR · 2) líneas <<< (digital) · 3) texto del reverso (amarilla)
+async function leerImagen(archivo) {
+  estado('Buscando código de barras…');
+  try {
+    const r = await conLimite(leerCodigo(archivo), 15000);
+    if (r) {
+      console.log('Lectura cruda:', r.formato, JSON.stringify(r.texto));
+      const datos = interpretarLectura(r.texto, r.formato);
+      if (lecturaCompleta(datos, r.formato)) return datos;
+    }
+  } catch (e) {
+    console.warn('Código de barras:', e);
+  }
+
+  estado('Leyendo las líneas <<< (cédula digital)…');
+  const img = await prepararImagen(archivo, 2000);
+  try {
+    const datos = await conLimite(leerMRZDeFoto(img), 30000);
+    if (datos?.cedula && datos.nombres) return datos;
+  } catch (e) {
+    console.warn('MRZ:', e);
+  }
+
+  estado('Leyendo el texto del reverso (cédula amarilla)…');
+  return conLimite(leerReversoAmarilla(archivo), 45000);
+}
+
+// ── Cámara en vivo ──
+let escanerVivo = null;
+let limiteCamara = null;
+const estadoCamara = (texto) => {
+  $('textoCamara').textContent = texto;
+  $('guia').classList.toggle('casi', /Casi/.test(texto));
+};
+
+function cerrarCamara() {
+  clearTimeout(limiteCamara);
+  escanerVivo?.detener();
+  escanerVivo = null;
+  $('zonaCamara').classList.add('oculto');
   $('btnCamara').classList.remove('oculto');
 }
 
+function posicionarGuia() {
+  const g = escanerVivo.guia();
+  Object.assign($('guia').style, {
+    left: `${(g.x / g.W) * 100}%`,
+    top: `${(g.y / g.H) * 100}%`,
+    width: `${(g.w / g.W) * 100}%`,
+    height: `${(g.h / g.H) * 100}%`,
+  });
+}
+
 $('btnCamara').addEventListener('click', async () => {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    return toast('La cámara solo funciona en la página publicada (https). Usa «Tomar foto».', 'error');
+  }
   $('zonaLector').classList.add('oculto');
-  $('lector').classList.remove('oculto');
-  $('btnDetener').classList.remove('oculto');
   $('btnCamara').classList.add('oculto');
+  $('zonaCamara').classList.remove('oculto');
+  estadoCamara('Abriendo la cámara…');
+  escanerVivo = new EscanerVivo($('video'), {
+    alLeer: (datos) => {
+      cerrarCamara();
+      aplicarDatos(datos);
+    },
+    alEstado: estadoCamara,
+  });
   try {
-    await escaner.iniciar(async (texto, formato) => {
-      await detenerCamara();
-      aplicarLectura(texto, formato);
-    });
+    await escanerVivo.iniciar();
+    posicionarGuia();
+    estadoCamara('Buscando… acerca el reverso de la cédula al recuadro');
+    $('zonaCamara').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    limiteCamara = setTimeout(() => {
+      cerrarCamara();
+      toast('No se logró leer en 2 minutos. Prueba con más luz, sin reflejos, o usa «Tomar foto».', 'error');
+    }, 120000);
   } catch (e) {
-    await detenerCamara();
-    toast('No se pudo abrir la cámara. Revisa los permisos del navegador.', 'error');
     console.error(e);
+    cerrarCamara();
+    toast('No se pudo abrir la cámara. Revisa los permisos del navegador o usa «Tomar foto».', 'error');
   }
 });
-$('btnDetener').addEventListener('click', detenerCamara);
+$('btnDetener').addEventListener('click', cerrarCamara);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && escanerVivo) cerrarCamara();
+});
+window.addEventListener('resize', () => escanerVivo && posicionarGuia());
 
-$('inFoto').addEventListener('change', async (ev) => {
+// ── Foto ──
+async function procesarFoto(ev) {
   const archivo = ev.target.files[0];
   ev.target.value = '';
   if (!archivo) return;
-  await detenerCamara();
-
-  // 1) Código de barras / QR
+  cerrarCamara();
+  $('zonaLector').classList.add('oculto');
+  for (const el of document.querySelectorAll('#inFoto, #inGaleria')) el.disabled = true;
   try {
-    const { texto, formato } = await escaner.desdeArchivo(archivo);
-    const datos = interpretarLectura(texto, formato);
-    if (datos?.cedula && datos.nombres) return aplicarLectura(texto, formato);
-  } catch { /* sin código legible: se intenta la MRZ */ }
-
-  // 2) Texto de la zona MRZ (reverso de la cédula digital)
-  toast('Leyendo el texto del reverso… (la primera vez tarda unos segundos)', 'aviso');
-  try {
-    const datos = await leerMRZDeFoto(archivo);
-    if (datos?.cedula) return aplicarDatos(datos);
-    toast('No se pudo leer la foto. Toma la foto de frente, con buena luz y sin reflejos sobre las líneas <<<.', 'error');
+    const datos = await leerImagen(archivo);
+    if (datos?.cedula) aplicarDatos(datos);
+    else toast('No se pudo leer. Toma la foto de cerca, de frente, con buena luz y sin reflejos.', 'error');
   } catch (e) {
     console.error(e);
-    toast('No se pudo leer la foto. Toma la foto de frente, con buena luz y sin reflejos.', 'error');
+    toast(
+      e.message === 'tiempo'
+        ? 'Tardó demasiado. Revisa la conexión e inténtalo con otra foto más cercana.'
+        : 'No se pudo leer la foto. Inténtalo de nuevo.',
+      'error'
+    );
+  } finally {
+    estado('');
+    for (const el of document.querySelectorAll('#inFoto, #inGaleria')) el.disabled = false;
   }
-});
+}
+
+$('inFoto').addEventListener('change', procesarFoto);
+$('inGaleria').addEventListener('change', procesarFoto);
 
 // Lector físico (pistola USB/Bluetooth que "escribe" como teclado) o texto pegado
 let espera;
-$('btnLector').addEventListener('click', async () => {
-  await detenerCamara();
+$('btnLector').addEventListener('click', () => {
+  cerrarCamara();
   $('zonaLector').classList.toggle('oculto');
   $('txtLector').value = '';
   $('txtLector').focus();

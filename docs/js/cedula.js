@@ -114,13 +114,12 @@ function extraerMRZ(texto) {
     const tokens = l.split(/\s+/).map((t) => t.replace(/[^A-Z0-9<]/g, ''));
     let mejor = '';
     for (const t of tokens) {
-      const m = t.match(/[A-Z]+(?:<[A-Z]+)*<<[A-Z]+(?:<+[A-Z]+)*<*/);
+      // APELLIDO(<APELLIDO)<<NOMBRE(<NOMBRE): un solo "<" entre palabras; lo que sigue a "<<<" es relleno o ruido
+      const m = t.match(/[A-Z]+(?:<[A-Z]+)*<<[A-Z]+(?:<[A-Z]+)*/);
       if (m && m[0].length > mejor.length) mejor = m[0];
     }
     if (mejor) {
-      // La línea mide 30: si sobra, lo que sobra está al principio
-      if (mejor.length > 30) mejor = mejor.slice(mejor.length - 30);
-      l3 = mejor.replace(/<+$/, '');
+      l3 = mejor;
       break;
     }
   }
@@ -178,7 +177,7 @@ function obtenerWorkerMRZ() {
 }
 
 // Reduce fotos grandes del celular para que el OCR sea rápido
-async function prepararImagen(archivo, anchoMax = 1600) {
+export async function prepararImagen(archivo, anchoMax = 1600) {
   const bmp = await createImageBitmap(archivo);
   const escala = Math.min(1, anchoMax / bmp.width);
   const c = document.createElement('canvas');
@@ -187,6 +186,11 @@ async function prepararImagen(archivo, anchoMax = 1600) {
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   bmp.close?.();
   return c;
+}
+
+// Descarga el lector de texto en segundo plano para que la primera foto sea rápida
+export function precargarLectorTexto() {
+  obtenerWorkerMRZ().catch((e) => console.warn('No se pudo precargar el OCR', e));
 }
 
 export async function leerMRZDeFoto(archivo) {
@@ -312,53 +316,251 @@ export function interpretarLectura(texto, formato = '') {
   return parsearMRZ(texto) || parsearPDF417(texto) || parsearQRDigital(texto);
 }
 
-// ───────── Cámara / foto (usa html5-qrcode cargado como script global) ─────────
-export class Escaner {
-  constructor(idElemento) {
-    this.id = idElemento;
-    this.h = null;
-    this.leyendo = false;
+// ───────── Código de barras / QR desde una foto (zxing-wasm, global ZXingWASM) ─────────
+const OPCIONES_CODIGO = {
+  formats: ['PDF417', 'QRCode'],
+  tryHarder: true,
+  tryRotate: true,
+  tryDownscale: true,
+  maxNumberOfSymbols: 1,
+};
+
+function resultadoCodigo(lista) {
+  const r = (lista || []).find((x) => x.isValid);
+  if (!r) return null;
+  // PDF417 de la cédula amarilla trae caracteres nulos: se usan los bytes crudos para no perder posiciones
+  const esPDF = /PDF/i.test(r.format);
+  const texto = esPDF ? new TextDecoder('windows-1252').decode(r.bytes) : r.text;
+  return { texto, formato: esPDF ? 'PDF_417' : 'QR_CODE' };
+}
+
+// El fondo amarillo con hologramas confunde al binarizador por defecto:
+// se prueban varios (FixedThreshold es el que lee la cédula amarilla en fotos reales)
+const BINARIZADORES = ['LocalAverage', 'FixedThreshold', 'GlobalHistogram'];
+
+async function probarBinarizadores(Z, entrada) {
+  for (const binarizer of BINARIZADORES) {
+    const r = resultadoCodigo(await Z.readBarcodes(entrada, { ...OPCIONES_CODIGO, binarizer }));
+    if (r) return r;
+  }
+  return null;
+}
+
+export async function leerCodigo(archivo) {
+  const Z = window.ZXingWASM;
+  if (!Z) throw new Error('No cargó el lector de códigos.');
+  let r = await probarBinarizadores(Z, archivo);
+  if (r) return r;
+  // Imagen pequeña: se amplía y se intenta otra vez
+  const img = await prepararImagen(archivo, 4000);
+  if (img.width < 1500) {
+    const c = ampliar(img, 2);
+    r = await probarBinarizadores(Z, c.getContext('2d').getImageData(0, 0, c.width, c.height));
+  }
+  return r;
+}
+
+function ampliar(canvas, factor) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(canvas.width * factor);
+  c.height = Math.round(canvas.height * factor);
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(canvas, 0, 0, c.width, c.height);
+  return c;
+}
+
+// ───────── Respaldo: texto impreso en el reverso de la cédula amarilla ─────────
+//  "P-2500100-01096450-M-1004802359-20190903"  → sexo y cédula
+//  "FECHA DE NACIMIENTO 29-MAR-2001"           → fecha de nacimiento
+const MESES = { ENE: '01', FEB: '02', MAR: '03', ABR: '04', MAY: '05', JUN: '06', JUL: '07', AGO: '08', SEP: '09', OCT: '10', NOV: '11', DIC: '12' };
+
+export function parsearReversoAmarilla(texto) {
+  const t = (texto || '').toUpperCase().replace(/[—–_~=]/g, '-');
+  const compacto = t.replace(/\s+/g, '');
+  const m = compacto.match(/P-?[0-9O]{5,9}-?[0-9O]{5,9}-?([MF])-?([0-9O]{6,10})(?![0-9])/);
+  if (!m) return null;
+  const datos = {
+    cedula: sinCeros(m[2].replace(/O/g, '0')),
+    sexo: m[1],
+    apellidos: '',
+    nombres: '',
+    tipoCedula: 'amarilla',
+    aviso: 'No se leyó el código de barras. VERIFICA el número de cédula con la tarjeta y escribe los nombres (o toma una foto más nítida).',
+  };
+  const f = t.match(/(\d{1,2})\s*-\s*(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\s*-\s*((?:19|20)\d{2})/);
+  if (f) datos.fechaNacimiento = fechaISO(f[3] + MESES[f[2]] + f[1].padStart(2, '0'));
+  return datos;
+}
+
+let workerTexto = null;
+function obtenerWorkerTexto() {
+  if (!workerTexto) {
+    if (!window.Tesseract) return Promise.reject(new Error('No cargó el lector de texto (Tesseract).'));
+    workerTexto = window.Tesseract.createWorker('eng').catch((e) => {
+      workerTexto = null;
+      throw e;
+    });
+  }
+  return workerTexto;
+}
+
+export async function leerReversoAmarilla(archivo) {
+  let img = await prepararImagen(archivo, 2400);
+  if (img.width < 1600) img = ampliar(img, Math.min(4, 1800 / img.width));
+  const worker = await obtenerWorkerTexto();
+  const { data } = await worker.recognize(img);
+  console.log('Texto OCR (amarilla):', JSON.stringify(data.text));
+  return parsearReversoAmarilla(data.text);
+}
+
+// ───────── Cámara en vivo: sigue buscando hasta tener una lectura válida ─────────
+const PROPORCION_CEDULA = 85.6 / 54;
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export class EscanerVivo {
+  constructor(video, { alLeer, alEstado = () => {} }) {
+    this.video = video;
+    this.alLeer = alLeer;
+    this.alEstado = alEstado;
+    this.activo = false;
+    this.stream = null;
   }
 
-  instancia() {
-    if (!this.h) {
-      const F = window.Html5QrcodeSupportedFormats;
-      this.h = new window.Html5Qrcode(this.id, {
-        formatsToSupport: [F.PDF_417, F.QR_CODE],
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        verbose: false,
-      });
+  async iniciar() {
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    });
+    this.video.setAttribute('playsinline', '');
+    this.video.muted = true;
+    this.video.srcObject = this.stream;
+    await this.video.play();
+    if (!this.video.videoWidth) await new Promise((r) => this.video.addEventListener('loadedmetadata', r, { once: true }));
+    // Enfoque continuo donde el navegador lo permita
+    try {
+      const pista = this.stream.getVideoTracks()[0];
+      const cap = pista.getCapabilities?.() || {};
+      if (cap.focusMode?.includes('continuous')) await pista.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    } catch { /* no soportado */ }
+    this.activo = true;
+    this.mrzPrevio = null;
+    this.bucleCodigo();
+    this.bucleMRZ();
+  }
+
+  detener() {
+    this.activo = false;
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
+    this.video.srcObject = null;
+  }
+
+  // Recuadro guía en coordenadas del video: centrado y con la forma de la cédula
+  guia() {
+    const W = this.video.videoWidth, H = this.video.videoHeight;
+    let w = W * 0.9, h = w / PROPORCION_CEDULA;
+    if (h > H * 0.9) { h = H * 0.9; w = h * PROPORCION_CEDULA; }
+    return { x: (W - w) / 2, y: (H - h) / 2, w, h, W, H };
+  }
+
+  // Recorta el recuadro (desdeY: 0 = toda la cédula, 0.45 = mitad inferior)
+  recorte(desdeY = 0, anchoMax = 1600) {
+    const g = this.guia();
+    const sy = g.y + g.h * desdeY, sh = g.h * (1 - desdeY);
+    const esc = Math.min(1, anchoMax / g.w);
+    const c = document.createElement('canvas');
+    c.width = Math.round(g.w * esc);
+    c.height = Math.round(sh * esc);
+    c.getContext('2d', { willReadFrequently: true }).drawImage(this.video, g.x, sy, g.w, sh, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  terminar(datos) {
+    if (!this.activo) return;
+    this.detener();
+    this.alLeer(datos);
+  }
+
+  // Lector nativo del celular (Chrome Android: BarcodeDetector), si existe y soporta PDF417
+  async detectorNativo() {
+    if (this._nativo !== undefined) return this._nativo;
+    this._nativo = null;
+    try {
+      if ('BarcodeDetector' in window) {
+        const formatos = await window.BarcodeDetector.getSupportedFormats();
+        if (formatos.includes('pdf417')) {
+          this._nativo = new window.BarcodeDetector({ formats: ['pdf417', 'qr_code'].filter((f) => formatos.includes(f)) });
+        }
+      }
+    } catch { /* no disponible */ }
+    return this._nativo;
+  }
+
+  // Código de barras (amarilla) o QR: varias veces por segundo.
+  // Primero el lector nativo (rápido); luego zxing alternando binarizadores.
+  async bucleCodigo() {
+    let i = 0;
+    const nativo = await this.detectorNativo();
+    while (this.activo) {
+      const Z = window.ZXingWASM;
+      if (nativo && this.video.readyState >= 2) {
+        try {
+          for (const b of await nativo.detect(this.video)) {
+            const formato = b.format === 'pdf417' ? 'PDF_417' : 'QR_CODE';
+            console.log('Lectura cruda (nativo):', formato, JSON.stringify(b.rawValue));
+            const d = interpretarLectura(b.rawValue, formato);
+            if (d?.cedula && d.nombres && this.activo) return this.terminar(d);
+          }
+        } catch (e) {
+          console.warn('Lector nativo:', e);
+        }
+      }
+      if (Z && this.video.readyState >= 2 && this.activo) {
+        try {
+          const c = this.recorte(0, 1600);
+          const imagen = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+          const binarizer = BINARIZADORES[i++ % BINARIZADORES.length];
+          const r = resultadoCodigo(await Z.readBarcodes(imagen, { ...OPCIONES_CODIGO, tryRotate: false, binarizer }));
+          if (r && this.activo) {
+            console.log('Lectura cruda (cámara):', r.formato, JSON.stringify(r.texto));
+            const d = interpretarLectura(r.texto, r.formato);
+            if (d?.cedula && d.nombres) return this.terminar(d);
+          }
+        } catch (e) {
+          console.warn('Código (cámara):', e);
+        }
+      }
+      await esperar(60);
     }
-    return this.h;
   }
 
-  async iniciar(alLeer) {
-    const h = this.instancia();
-    this.leyendo = false;
-    await h.start(
-      { facingMode: 'environment' },
-      {
-        fps: 12,
-        qrbox: (w, alto) => ({ width: Math.floor(w * 0.92), height: Math.floor(alto * 0.6) }),
-        videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-      },
-      async (texto, resultado) => {
-        if (this.leyendo) return;
-        this.leyendo = true;
-        await this.detener();
-        alLeer(texto, resultado?.result?.format?.formatName || '');
-      },
-      () => {}
-    );
-  }
-
-  async detener() {
-    if (this.h?.isScanning) await this.h.stop().catch(() => {});
-  }
-
-  async desdeArchivo(archivo) {
-    await this.detener();
-    const r = await this.instancia().scanFileV2(archivo, false);
-    return { texto: r.decodedText, formato: r.result?.format?.formatName || '' };
+  // Líneas <<< (digital): se acepta solo si el control de la fecha cuadra y dos lecturas seguidas coinciden
+  async bucleMRZ() {
+    let worker;
+    try {
+      worker = await obtenerWorkerMRZ();
+    } catch (e) {
+      console.warn('OCR no disponible:', e);
+      return;
+    }
+    while (this.activo) {
+      if (this.video.readyState >= 2) {
+        try {
+          const { data } = await worker.recognize(this.recorte(0.45, 1400));
+          if (!this.activo) return;
+          const d = parsearMRZ(data.text);
+          if (d?.cedula?.length >= 6 && d.nombres && d.apellidos && d.fechaNacimiento && !d.aviso) {
+            const clave = [d.cedula, d.apellidos, d.nombres, d.fechaNacimiento, d.sexo].join('|');
+            if (clave === this.mrzPrevio) return this.terminar(d);
+            this.mrzPrevio = clave;
+            this.alEstado('Casi listo… mantén la cédula quieta');
+          }
+        } catch (e) {
+          console.warn('MRZ (cámara):', e);
+        }
+      }
+      await esperar(100);
+    }
   }
 }

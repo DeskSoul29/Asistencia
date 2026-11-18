@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Asistencia · Registro</title>
-  <link rel="stylesheet" href="css/styles.css">
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css?v=10">
+  <script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.7/dist/iife/reader/index.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js"></script>
 </head>
@@ -30,22 +30,33 @@
       <section class="tarjeta">
         <h2>1. Leer la cédula</h2>
         <div class="botones">
-          <button id="btnCamara" type="button">📷 Escanear con cámara</button>
-          <label class="btn-sec">🖼️ Desde una foto
-            <input type="file" accept="image/*" id="inFoto" hidden>
+          <button id="btnCamara" type="button" class="btn-grande">📷 Escanear con cámara</button>
+          <label class="btn-sec">📸 Tomar foto
+            <input type="file" accept="image/*" capture="environment" id="inFoto" hidden>
+          </label>
+          <label class="btn-sec">🖼️ Galería
+            <input type="file" accept="image/*" id="inGaleria" hidden>
           </label>
           <button id="btnLector" type="button" class="btn-sec">⌨️ Lector físico / pegar</button>
-          <button id="btnDetener" type="button" class="btn-sec oculto">⏹ Detener cámara</button>
         </div>
-        <div id="lector" class="lector oculto"></div>
+        <div id="zonaCamara" class="zona-camara oculto">
+          <div class="visor">
+            <video id="video" playsinline muted></video>
+            <div id="guia" class="guia"></div>
+          </div>
+          <p id="estadoCamara" class="estado"><span class="spinner"></span><span id="textoCamara"></span></p>
+          <button id="btnDetener" type="button" class="btn-sec">⏹ Detener cámara</button>
+        </div>
+        <div id="estadoLectura" class="estado oculto"><span class="spinner"></span><span id="textoEstado"></span></div>
         <div id="zonaLector" class="oculto">
           <label>Pasa la cédula por el lector de códigos (o pega aquí el texto / las líneas MRZ)
             <textarea id="txtLector" rows="3" placeholder="Esperando lectura…"></textarea>
           </label>
         </div>
         <p class="ayuda">
-          <b>Cédula amarilla:</b> escanea el código de barras largo del reverso (cámara o foto).
-          <b>Cédula digital:</b> escanea el código QR; si no lo lee, usa <b>Desde una foto</b> y fotografía el reverso con las 3 líneas de <code>&lt;&lt;&lt;</code> bien enfocadas.
+          Pon el <b>reverso</b> de la cédula dentro del recuadro, plana y bien iluminada:
+          en la <b>amarilla</b> se lee el código de barras largo; en la <b>digital</b> las 3 líneas de <code>&lt;&lt;&lt;</code>.
+          La cámara sigue buscando hasta leerla bien.
         </p>
       </section>
 
@@ -126,6 +137,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="js/asistente.js?v=5"></script>
+  <script type="module" src="js/asistente.js?v=10"></script>
 </body>
 </html>
