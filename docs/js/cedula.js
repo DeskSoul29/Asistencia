@@ -114,13 +114,12 @@ function extraerMRZ(texto) {
     const tokens = l.split(/\s+/).map((t) => t.replace(/[^A-Z0-9<]/g, ''));
     let mejor = '';
     for (const t of tokens) {
-      const m = t.match(/[A-Z]+(?:<[A-Z]+)*<<[A-Z]+(?:<+[A-Z]+)*<*/);
+      // APELLIDO(<APELLIDO)<<NOMBRE(<NOMBRE): un solo "<" entre palabras; lo que sigue a "<<<" es relleno o ruido
+      const m = t.match(/[A-Z]+(?:<[A-Z]+)*<<[A-Z]+(?:<[A-Z]+)*/);
       if (m && m[0].length > mejor.length) mejor = m[0];
     }
     if (mejor) {
-      // La línea mide 30: si sobra, lo que sobra está al principio
-      if (mejor.length > 30) mejor = mejor.slice(mejor.length - 30);
-      l3 = mejor.replace(/<+$/, '');
+      l3 = mejor;
       break;
     }
   }
@@ -178,7 +177,7 @@ function obtenerWorkerMRZ() {
 }
 
 // Reduce fotos grandes del celular para que el OCR sea rápido
-async function prepararImagen(archivo, anchoMax = 1600) {
+export async function prepararImagen(archivo, anchoMax = 1600) {
   const bmp = await createImageBitmap(archivo);
   const escala = Math.min(1, anchoMax / bmp.width);
   const c = document.createElement('canvas');
@@ -187,6 +186,11 @@ async function prepararImagen(archivo, anchoMax = 1600) {
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   bmp.close?.();
   return c;
+}
+
+// Descarga el lector de texto en segundo plano para que la primera foto sea rápida
+export function precargarLectorTexto() {
+  obtenerWorkerMRZ().catch((e) => console.warn('No se pudo precargar el OCR', e));
 }
 
 export async function leerMRZDeFoto(archivo) {
