@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Asistencia · Registro</title>
   <link rel="stylesheet" href="css/styles.css?v=7">
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.7/dist/iife/reader/index.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js"></script>
 </head>
@@ -39,7 +39,6 @@
           <button id="btnLector" type="button" class="btn-sec">⌨️ Lector físico / pegar</button>
         </div>
         <div id="estadoLectura" class="estado oculto"><span class="spinner"></span><span id="textoEstado"></span></div>
-        <div id="lectorArchivo" class="oculto"></div>
         <div id="zonaLector" class="oculto">
           <label>Pasa la cédula por el lector de códigos (o pega aquí el texto / las líneas MRZ)
             <textarea id="txtLector" rows="3" placeholder="Esperando lectura…"></textarea>
@@ -128,6 +127,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="js/asistente.js?v=7"></script>
+  <script type="module" src="js/asistente.js?v=9"></script>
 </body>
 </html>

@@ -316,84 +316,100 @@ export function interpretarLectura(texto, formato = '') {
   return parsearMRZ(texto) || parsearPDF417(texto) || parsearQRDigital(texto);
 }
 
-// ───────── Cámara / foto (usa html5-qrcode cargado como script global) ─────────
-function crearLector(id) {
-  const F = window.Html5QrcodeSupportedFormats;
-  return new window.Html5Qrcode(id, {
-    formatsToSupport: [F.PDF_417, F.QR_CODE],
-    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-    verbose: false,
-  });
+// ───────── Código de barras / QR desde una foto (zxing-wasm, global ZXingWASM) ─────────
+const OPCIONES_CODIGO = {
+  formats: ['PDF417', 'QRCode'],
+  tryHarder: true,
+  tryRotate: true,
+  tryDownscale: true,
+  maxNumberOfSymbols: 1,
+};
+
+function resultadoCodigo(lista) {
+  const r = (lista || []).find((x) => x.isValid);
+  if (!r) return null;
+  // PDF417 de la cédula amarilla trae caracteres nulos: se usan los bytes crudos para no perder posiciones
+  const esPDF = /PDF/i.test(r.format);
+  const texto = esPDF ? new TextDecoder('windows-1252').decode(r.bytes) : r.text;
+  return { texto, formato: esPDF ? 'PDF_417' : 'QR_CODE' };
 }
 
-export class Escaner {
-  // idVideo: donde se muestra la cámara · idArchivo: elemento oculto para leer fotos/cuadros
-  constructor(idVideo, idArchivo) {
-    this.idVideo = idVideo;
-    this.idArchivo = idArchivo;
-    this.h = null;
-    this.hArchivo = null;
-    this.ocupado = false;
-  }
+// El fondo amarillo con hologramas confunde al binarizador por defecto:
+// se prueban varios (FixedThreshold es el que lee la cédula amarilla en fotos reales)
+const BINARIZADORES = ['LocalAverage', 'FixedThreshold', 'GlobalHistogram'];
 
-  // alLeer(texto, formato) debe devolver true si la lectura sirvió (y se apaga la cámara)
-  async iniciar(alLeer) {
-    if (!this.h) this.h = crearLector(this.idVideo);
-    this.ocupado = false;
-    await this.h.start(
-      { facingMode: 'environment' },
-      {
-        fps: 12,
-        qrbox: (w, alto) => ({ width: Math.floor(w * 0.95), height: Math.floor(alto * 0.75) }),
-        videoConstraints: {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          focusMode: 'continuous',
-        },
-      },
-      async (texto, resultado) => {
-        if (this.ocupado) return;
-        this.ocupado = true;
-        try {
-          const sirvio = await alLeer(texto, resultado?.result?.format?.formatName || '');
-          if (sirvio) await this.detener();
-        } finally {
-          this.ocupado = false;
-        }
-      },
-      () => {}
-    );
+async function probarBinarizadores(Z, entrada) {
+  for (const binarizer of BINARIZADORES) {
+    const r = resultadoCodigo(await Z.readBarcodes(entrada, { ...OPCIONES_CODIGO, binarizer }));
+    if (r) return r;
   }
+  return null;
+}
 
-  get activa() {
-    return !!this.h?.isScanning;
+export async function leerCodigo(archivo) {
+  const Z = window.ZXingWASM;
+  if (!Z) throw new Error('No cargó el lector de códigos.');
+  let r = await probarBinarizadores(Z, archivo);
+  if (r) return r;
+  // Imagen pequeña: se amplía y se intenta otra vez
+  const img = await prepararImagen(archivo, 4000);
+  if (img.width < 1500) {
+    const c = ampliar(img, 2);
+    r = await probarBinarizadores(Z, c.getContext('2d').getImageData(0, 0, c.width, c.height));
   }
+  return r;
+}
 
-  async detener() {
-    if (this.h?.isScanning) await this.h.stop().catch(() => {});
-  }
+function ampliar(canvas, factor) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(canvas.width * factor);
+  c.height = Math.round(canvas.height * factor);
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(canvas, 0, 0, c.width, c.height);
+  return c;
+}
 
-  // Cuadro actual del video en resolución completa
-  cuadro() {
-    const video = document.querySelector(`#${this.idVideo} video`);
-    if (!video || !video.videoWidth) return null;
-    const c = document.createElement('canvas');
-    c.width = video.videoWidth;
-    c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0);
-    return c;
-  }
+// ───────── Respaldo: texto impreso en el reverso de la cédula amarilla ─────────
+//  "P-2500100-01096450-M-1004802359-20190903"  → sexo y cédula
+//  "FECHA DE NACIMIENTO 29-MAR-2001"           → fecha de nacimiento
+const MESES = { ENE: '01', FEB: '02', MAR: '03', ABR: '04', MAY: '05', JUN: '06', JUL: '07', AGO: '08', SEP: '09', OCT: '10', NOV: '11', DIC: '12' };
 
-  // Lee código de barras / QR de una foto o de un canvas (no apaga la cámara)
-  async desdeArchivo(fuente) {
-    let archivo = fuente;
-    if (fuente instanceof HTMLCanvasElement) {
-      const blob = await new Promise((ok) => fuente.toBlob(ok, 'image/jpeg', 0.95));
-      archivo = new File([blob], 'cuadro.jpg', { type: 'image/jpeg' });
-    }
-    if (!this.hArchivo) this.hArchivo = crearLector(this.idArchivo);
-    const r = await this.hArchivo.scanFileV2(archivo, false);
-    return { texto: r.decodedText, formato: r.result?.format?.formatName || '' };
+export function parsearReversoAmarilla(texto) {
+  const t = (texto || '').toUpperCase().replace(/[—–_~=]/g, '-');
+  const compacto = t.replace(/\s+/g, '');
+  const m = compacto.match(/P-?[0-9O]{5,9}-?[0-9O]{5,9}-?([MF])-?([0-9O]{6,10})(?![0-9])/);
+  if (!m) return null;
+  const datos = {
+    cedula: sinCeros(m[2].replace(/O/g, '0')),
+    sexo: m[1],
+    apellidos: '',
+    nombres: '',
+    tipoCedula: 'amarilla',
+    aviso: 'No se leyó el código de barras. VERIFICA el número de cédula con la tarjeta y escribe los nombres (o toma una foto más nítida).',
+  };
+  const f = t.match(/(\d{1,2})\s*-\s*(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\s*-\s*((?:19|20)\d{2})/);
+  if (f) datos.fechaNacimiento = fechaISO(f[3] + MESES[f[2]] + f[1].padStart(2, '0'));
+  return datos;
+}
+
+let workerTexto = null;
+function obtenerWorkerTexto() {
+  if (!workerTexto) {
+    if (!window.Tesseract) return Promise.reject(new Error('No cargó el lector de texto (Tesseract).'));
+    workerTexto = window.Tesseract.createWorker('eng').catch((e) => {
+      workerTexto = null;
+      throw e;
+    });
   }
+  return workerTexto;
+}
+
+export async function leerReversoAmarilla(archivo) {
+  let img = await prepararImagen(archivo, 2400);
+  if (img.width < 1600) img = ampliar(img, Math.min(4, 1800 / img.width));
+  const worker = await obtenerWorkerTexto();
+  const { data } = await worker.recognize(img);
+  console.log('Texto OCR (amarilla):', JSON.stringify(data.text));
+  return parsearReversoAmarilla(data.text);
 }

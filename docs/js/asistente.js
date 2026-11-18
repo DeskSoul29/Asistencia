@@ -1,8 +1,8 @@
 import {
   iniciarPagina, toast, escapar, formatearFecha, prepararTelefono, ponerTelefono, leerTelefono,
   llenarFormulario, leerFormulario, filtrar, exportarExcel, exportarCSV,
-} from './app.js?v=7';
-import { Escaner, interpretarLectura, leerMRZDeFoto, prepararImagen, precargarLectorTexto } from './cedula.js?v=7';
+} from './app.js?v=9';
+import { interpretarLectura, leerCodigo, leerMRZDeFoto, leerReversoAmarilla, prepararImagen, precargarLectorTexto } from './cedula.js?v=9';
 
 const $ = (id) => document.getElementById(id);
 let lista = [];
@@ -53,7 +53,6 @@ $('btnExcel').addEventListener('click', () => exportarExcel(filtrar(lista, $('bu
 $('btnCSV').addEventListener('click', () => exportarCSV(filtrar(lista, $('buscar').value)));
 
 // ───────── Lectura de cédula ─────────
-const escaner = new Escaner(null, 'lectorArchivo');
 
 // ¿La lectura trae lo necesario para llenar el formulario?
 const lecturaCompleta = (d, formato = '') => !!(d?.cedula && (d.nombres || /PDF/i.test(formato)));
@@ -89,21 +88,31 @@ const estado = (texto) => {
 const conLimite = (promesa, ms) =>
   Promise.race([promesa, new Promise((_, no) => setTimeout(() => no(new Error('tiempo')), ms))]);
 
-// Lee una foto: primero código de barras / QR, luego las líneas <<<
+// Lee una foto: 1) código de barras / QR · 2) líneas <<< (digital) · 3) texto del reverso (amarilla)
 async function leerImagen(archivo) {
-  estado('Preparando la foto…');
-  const img = await prepararImagen(archivo, 2000); // las fotos del celular son enormes: se reducen
-
   estado('Buscando código de barras…');
   try {
-    const { texto, formato } = await conLimite(escaner.desdeArchivo(img), 8000);
-    console.log('Lectura cruda:', formato, JSON.stringify(texto));
-    const datos = interpretarLectura(texto, formato);
-    if (lecturaCompleta(datos, formato)) return datos;
-  } catch { /* sin código legible */ }
+    const r = await conLimite(leerCodigo(archivo), 15000);
+    if (r) {
+      console.log('Lectura cruda:', r.formato, JSON.stringify(r.texto));
+      const datos = interpretarLectura(r.texto, r.formato);
+      if (lecturaCompleta(datos, r.formato)) return datos;
+    }
+  } catch (e) {
+    console.warn('Código de barras:', e);
+  }
 
-  estado('Leyendo las líneas <<< del reverso…');
-  return conLimite(leerMRZDeFoto(img), 30000);
+  estado('Leyendo las líneas <<< (cédula digital)…');
+  const img = await prepararImagen(archivo, 2000);
+  try {
+    const datos = await conLimite(leerMRZDeFoto(img), 30000);
+    if (datos?.cedula && datos.nombres) return datos;
+  } catch (e) {
+    console.warn('MRZ:', e);
+  }
+
+  estado('Leyendo el texto del reverso (cédula amarilla)…');
+  return conLimite(leerReversoAmarilla(archivo), 45000);
 }
 
 async function procesarFoto(ev) {
