@@ -534,6 +534,8 @@ export class EscanerVivo {
       await esperar(60);
     }
   }
+  return null;
+}
 
   // Líneas <<< (digital): se acepta solo si el control de la fecha cuadra y dos lecturas seguidas coinciden
   async bucleMRZ() {
