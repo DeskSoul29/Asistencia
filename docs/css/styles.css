@@ -59,7 +59,10 @@ button:disabled { opacity: .6; cursor: wait; }
 .grid .ancho { grid-column: 1 / -1; }
 .tel { display: grid; grid-template-columns: 130px 1fr; gap: .4rem; }
 
-.lector { margin-top: .8rem; max-width: 640px; border-radius: 10px; overflow: hidden; border: 1px solid var(--borde); }
+.zona-camara { margin-top: .8rem; display: grid; gap: .6rem; max-width: 640px; }
+.zona-camara .botones button { flex: 1 1 auto; }
+.btn-grande { font-size: 1.1rem; padding: .9rem 1.2rem; }
+.lector { margin-top: 0; max-width: 640px; border-radius: 10px; overflow: hidden; border: 1px solid var(--borde); }
 #zonaLector { margin-top: .8rem; }
 
 .herramientas { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .8rem; }

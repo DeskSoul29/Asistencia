@@ -313,52 +313,83 @@ export function interpretarLectura(texto, formato = '') {
 }
 
 // ───────── Cámara / foto (usa html5-qrcode cargado como script global) ─────────
+function crearLector(id) {
+  const F = window.Html5QrcodeSupportedFormats;
+  return new window.Html5Qrcode(id, {
+    formatsToSupport: [F.PDF_417, F.QR_CODE],
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+    verbose: false,
+  });
+}
+
 export class Escaner {
-  constructor(idElemento) {
-    this.id = idElemento;
+  // idVideo: donde se muestra la cámara · idArchivo: elemento oculto para leer fotos/cuadros
+  constructor(idVideo, idArchivo) {
+    this.idVideo = idVideo;
+    this.idArchivo = idArchivo;
     this.h = null;
-    this.leyendo = false;
+    this.hArchivo = null;
+    this.ocupado = false;
   }
 
-  instancia() {
-    if (!this.h) {
-      const F = window.Html5QrcodeSupportedFormats;
-      this.h = new window.Html5Qrcode(this.id, {
-        formatsToSupport: [F.PDF_417, F.QR_CODE],
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        verbose: false,
-      });
-    }
-    return this.h;
-  }
-
+  // alLeer(texto, formato) debe devolver true si la lectura sirvió (y se apaga la cámara)
   async iniciar(alLeer) {
-    const h = this.instancia();
-    this.leyendo = false;
-    await h.start(
+    if (!this.h) this.h = crearLector(this.idVideo);
+    this.ocupado = false;
+    await this.h.start(
       { facingMode: 'environment' },
       {
         fps: 12,
-        qrbox: (w, alto) => ({ width: Math.floor(w * 0.92), height: Math.floor(alto * 0.6) }),
-        videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        qrbox: (w, alto) => ({ width: Math.floor(w * 0.95), height: Math.floor(alto * 0.75) }),
+        videoConstraints: {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          focusMode: 'continuous',
+        },
       },
       async (texto, resultado) => {
-        if (this.leyendo) return;
-        this.leyendo = true;
-        await this.detener();
-        alLeer(texto, resultado?.result?.format?.formatName || '');
+        if (this.ocupado) return;
+        this.ocupado = true;
+        try {
+          const sirvio = await alLeer(texto, resultado?.result?.format?.formatName || '');
+          if (sirvio) await this.detener();
+        } finally {
+          this.ocupado = false;
+        }
       },
       () => {}
     );
+  }
+
+  get activa() {
+    return !!this.h?.isScanning;
   }
 
   async detener() {
     if (this.h?.isScanning) await this.h.stop().catch(() => {});
   }
 
-  async desdeArchivo(archivo) {
-    await this.detener();
-    const r = await this.instancia().scanFileV2(archivo, false);
+  // Cuadro actual del video en resolución completa
+  cuadro() {
+    const video = document.querySelector(`#${this.idVideo} video`);
+    if (!video || !video.videoWidth) return null;
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0);
+    return c;
+  }
+
+  // Lee código de barras / QR de una foto o de un canvas (no apaga la cámara)
+  async desdeArchivo(fuente) {
+    let archivo = fuente;
+    if (fuente instanceof HTMLCanvasElement) {
+      const blob = await new Promise((ok) => fuente.toBlob(ok, 'image/jpeg', 0.95));
+      archivo = new File([blob], 'cuadro.jpg', { type: 'image/jpeg' });
+    }
+    if (!this.hArchivo) this.hArchivo = crearLector(this.idArchivo);
+    const r = await this.hArchivo.scanFileV2(archivo, false);
     return { texto: r.decodedText, formato: r.result?.format?.formatName || '' };
   }
 }

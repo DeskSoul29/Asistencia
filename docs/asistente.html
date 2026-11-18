@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Asistencia · Registro</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=6">
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js"></script>
@@ -35,17 +35,25 @@
             <input type="file" accept="image/*" id="inFoto" hidden>
           </label>
           <button id="btnLector" type="button" class="btn-sec">⌨️ Lector físico / pegar</button>
-          <button id="btnDetener" type="button" class="btn-sec oculto">⏹ Detener cámara</button>
         </div>
-        <div id="lector" class="lector oculto"></div>
+        <div id="zonaCamara" class="zona-camara oculto">
+          <div id="lector" class="lector"></div>
+          <p id="estadoCamara" class="ayuda"></p>
+          <div class="botones">
+            <button id="btnCapturar" type="button" class="btn-grande">📸 Capturar y leer</button>
+            <button id="btnDetener" type="button" class="btn-sec">⏹ Detener</button>
+          </div>
+        </div>
+        <div id="lectorArchivo" class="oculto"></div>
         <div id="zonaLector" class="oculto">
           <label>Pasa la cédula por el lector de códigos (o pega aquí el texto / las líneas MRZ)
             <textarea id="txtLector" rows="3" placeholder="Esperando lectura…"></textarea>
           </label>
         </div>
         <p class="ayuda">
-          <b>Cédula amarilla:</b> escanea el código de barras largo del reverso (cámara o foto).
-          <b>Cédula digital:</b> escanea el código QR; si no lo lee, usa <b>Desde una foto</b> y fotografía el reverso con las 3 líneas de <code>&lt;&lt;&lt;</code> bien enfocadas.
+          <b>Cédula amarilla:</b> enfoca el código de barras largo del reverso, de lado a lado.
+          <b>Cédula digital:</b> enfoca el reverso con las 3 líneas de <code>&lt;&lt;&lt;</code>; se leen solas en unos segundos.
+          Si no lee, pulsa <b>📸 Capturar y leer</b> con la cédula quieta.
         </p>
       </section>
 
@@ -126,6 +134,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="js/asistente.js?v=5"></script>
+  <script type="module" src="js/asistente.js?v=6"></script>
 </body>
 </html>

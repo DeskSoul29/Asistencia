@@ -1,8 +1,8 @@
 import {
   iniciarPagina, toast, escapar, formatearFecha, prepararTelefono, ponerTelefono, leerTelefono,
   llenarFormulario, leerFormulario, filtrar, exportarExcel, exportarCSV,
-} from './app.js?v=5';
-import { Escaner, interpretarLectura, leerMRZDeFoto } from './cedula.js?v=5';
+} from './app.js?v=6';
+import { Escaner, interpretarLectura, leerMRZDeFoto } from './cedula.js?v=6';
 
 const $ = (id) => document.getElementById(id);
 let lista = [];
@@ -52,7 +52,10 @@ $('btnExcel').addEventListener('click', () => exportarExcel(filtrar(lista, $('bu
 $('btnCSV').addEventListener('click', () => exportarCSV(filtrar(lista, $('buscar').value)));
 
 // ───────── Lectura de cédula ─────────
-const escaner = new Escaner('lector');
+const escaner = new Escaner('lector', 'lectorArchivo');
+
+// ¿La lectura trae lo necesario para llenar el formulario?
+const lecturaCompleta = (d, formato = '') => !!(d?.cedula && (d.nombres || /PDF/i.test(formato)));
 
 function aplicarLectura(texto, formato) {
   console.log('Lectura cruda:', formato || '(sin formato)', JSON.stringify(texto));
@@ -73,58 +76,106 @@ function aplicarDatos(datos) {
   ponerTelefono(form, tel);
   form.correo.value = correo;
   toast(datos.aviso || `Cédula ${datos.cedula} leída ✔`, datos.aviso ? 'aviso' : 'ok');
-  (form.numero.value ? form.querySelector('[type=submit]') : form.numero).focus();
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (navigator.vibrate) navigator.vibrate(120);
 }
 
+// Intenta leer una imagen (foto o cuadro de la cámara): primero código, luego líneas <<<
+async function leerImagen(fuente) {
+  try {
+    const { texto, formato } = await escaner.desdeArchivo(fuente);
+    console.log('Lectura cruda:', formato, JSON.stringify(texto));
+    const datos = interpretarLectura(texto, formato);
+    if (lecturaCompleta(datos, formato)) return datos;
+  } catch { /* sin código legible */ }
+  return leerMRZDeFoto(fuente).catch((e) => { console.error(e); return null; });
+}
+
+// ── Cámara en vivo ──
+let intervaloMRZ = null;
+let ocupadoMRZ = false;
+const estado = (t) => ($('estadoCamara').textContent = t);
+
 async function detenerCamara() {
+  clearInterval(intervaloMRZ);
+  intervaloMRZ = null;
   await escaner.detener();
-  $('lector').classList.add('oculto');
-  $('btnDetener').classList.add('oculto');
+  $('zonaCamara').classList.add('oculto');
   $('btnCamara').classList.remove('oculto');
+}
+
+async function terminarConDatos(datos) {
+  await detenerCamara();
+  aplicarDatos(datos);
+}
+
+// Cada pocos segundos intenta leer las líneas <<< del cuadro actual (cédula digital)
+async function intentoAutomaticoMRZ() {
+  if (ocupadoMRZ || !escaner.activa) return;
+  const c = escaner.cuadro();
+  if (!c) return;
+  ocupadoMRZ = true;
+  try {
+    const datos = await leerMRZDeFoto(c);
+    if (datos?.cedula && datos.nombres && escaner.activa) await terminarConDatos(datos);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    ocupadoMRZ = false;
+  }
 }
 
 $('btnCamara').addEventListener('click', async () => {
   $('zonaLector').classList.add('oculto');
-  $('lector').classList.remove('oculto');
-  $('btnDetener').classList.remove('oculto');
+  $('zonaCamara').classList.remove('oculto');
   $('btnCamara').classList.add('oculto');
+  estado('Buscando código… o pulsa «Capturar y leer».');
   try {
     await escaner.iniciar(async (texto, formato) => {
-      await detenerCamara();
-      aplicarLectura(texto, formato);
+      console.log('Lectura cruda:', formato, JSON.stringify(texto));
+      const datos = interpretarLectura(texto, formato);
+      if (!lecturaCompleta(datos, formato)) return false; // p. ej. QR sin datos: sigue buscando
+      await terminarConDatos(datos);
+      return true;
     });
+    intervaloMRZ = setInterval(intentoAutomaticoMRZ, 3000);
   } catch (e) {
     await detenerCamara();
-    toast('No se pudo abrir la cámara. Revisa los permisos del navegador.', 'error');
+    toast('No se pudo abrir la cámara. Revisa los permisos del navegador o usa «Desde una foto».', 'error');
     console.error(e);
   }
 });
 $('btnDetener').addEventListener('click', detenerCamara);
 
+$('btnCapturar').addEventListener('click', async () => {
+  const c = escaner.cuadro();
+  if (!c) return;
+  const btn = $('btnCapturar');
+  btn.disabled = true;
+  estado('Leyendo… mantén la cédula quieta.');
+  while (ocupadoMRZ) await new Promise((r) => setTimeout(r, 150)); // espera el intento automático
+  ocupadoMRZ = true;
+  try {
+    const datos = await leerImagen(c);
+    if (datos?.cedula) return await terminarConDatos(datos);
+    estado('No se pudo leer. Acerca la cédula, con buena luz y sin reflejos, y vuelve a intentar.');
+    toast('No se pudo leer. Acércala más y evita reflejos.', 'error');
+  } finally {
+    ocupadoMRZ = false;
+    btn.disabled = false;
+  }
+});
+
+// ── Foto ──
 $('inFoto').addEventListener('change', async (ev) => {
   const archivo = ev.target.files[0];
   ev.target.value = '';
   if (!archivo) return;
   await detenerCamara();
-
-  // 1) Código de barras / QR
-  try {
-    const { texto, formato } = await escaner.desdeArchivo(archivo);
-    const datos = interpretarLectura(texto, formato);
-    if (datos?.cedula && datos.nombres) return aplicarLectura(texto, formato);
-  } catch { /* sin código legible: se intenta la MRZ */ }
-
-  // 2) Texto de la zona MRZ (reverso de la cédula digital)
-  toast('Leyendo el texto del reverso… (la primera vez tarda unos segundos)', 'aviso');
-  try {
-    const datos = await leerMRZDeFoto(archivo);
-    if (datos?.cedula) return aplicarDatos(datos);
-    toast('No se pudo leer la foto. Toma la foto de frente, con buena luz y sin reflejos sobre las líneas <<<.', 'error');
-  } catch (e) {
-    console.error(e);
-    toast('No se pudo leer la foto. Toma la foto de frente, con buena luz y sin reflejos.', 'error');
-  }
+  toast('Leyendo la foto… (la primera vez tarda unos segundos)', 'aviso');
+  const datos = await leerImagen(archivo);
+  if (datos?.cedula) return aplicarDatos(datos);
+  toast('No se pudo leer la foto. Tómala de frente, con buena luz y sin reflejos.', 'error');
 });
 
 // Lector físico (pistola USB/Bluetooth que "escribe" como teclado) o texto pegado
